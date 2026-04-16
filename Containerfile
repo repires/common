@@ -1,6 +1,6 @@
 FROM docker.io/library/alpine:latest@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS build
 
-COPY --from=ghcr.io/ublue-os/bluefin-wallpapers-gnome:latest@sha256:4a9b0b771a7e927308cf1240ad1b512b61f2a91954be799bc6e1b5045fea2942 / /out/bluefin/usr/share
+COPY --from=ghcr.io/ublue-os/bluefin-wallpapers-gnome:latest@sha256:e4d74fa741ce9ff03a6a60440a58c31cef6c0fc145182357d243580ba239f810 / /out/bluefin/usr/share
 
 RUN apk add just curl
 
