@@ -24,7 +24,7 @@ accent-color="slate"
 enabled=['io.github.kolunmi.Bazaar.desktop', 'org.gnome.Calculator.desktop']
 
 [org.gnome.desktop.sound]
-allow-volume-above-100-percent=true
+allow-volume-above-100-percent=false
 theme-name="freedesktop"
 
 [org.gnome.desktop.wm.preferences]
