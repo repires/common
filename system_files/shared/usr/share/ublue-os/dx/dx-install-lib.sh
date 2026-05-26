@@ -59,6 +59,33 @@ dx_brew_link_if_installed() {
     done
 }
 
+# Download static tarball to a file; optional SHA256 pin (set when bumping docker_ver).
+dx_fetch_verified_tgz() {
+    local url=$1 dest=$2 expected_sha=${3:-}
+    if ! curl -fSL --retry 3 --retry-delay 2 "$url" -o "$dest"; then
+        echo "DX-Next: failed to download $url" >&2
+        return 1
+    fi
+    if [ ! -s "$dest" ]; then
+        echo "DX-Next: empty download from $url" >&2
+        return 1
+    fi
+    if [ -n "$expected_sha" ]; then
+        local actual
+        actual=$(sha256sum "$dest" | awk '{print $1}')
+        if [ "$actual" != "$expected_sha" ]; then
+            echo "DX-Next: SHA256 mismatch for $(basename "$dest")" >&2
+            echo "  expected: $expected_sha" >&2
+            echo "  actual:   $actual" >&2
+            return 1
+        fi
+    fi
+    if ! tar -tzf "$dest" >/dev/null 2>&1; then
+        echo "DX-Next: archive failed integrity check: $(basename "$dest")" >&2
+        return 1
+    fi
+}
+
 dx_brew_install_if_missing() {
     local pkg
     for pkg in "$@"; do
@@ -81,13 +108,24 @@ dx_brew_install_if_missing() {
 
 dx_run_groups_body() {
     local sysusers_conf="/etc/sysusers.d/dx-groups.conf"
+    # Never groupmod an existing host libvirt GID — only create the group when absent.
     dx_sudo_run "
-        groupmod -g 5679 libvirt 2>/dev/null || true
         mkdir -p /etc/sysusers.d/
-        printf '%s\n' \
-            'g libvirt 5679' 'g docker -' 'g incus-admin -' '' \
-            'm ${USER} libvirt' 'm ${USER} docker' 'm ${USER} incus-admin' \
-            > '${sysusers_conf}'
+        {
+            if ! getent group libvirt >/dev/null 2>&1; then
+                echo 'g libvirt 5679'
+            fi
+            if ! getent group docker >/dev/null 2>&1; then
+                echo 'g docker -'
+            fi
+            if ! getent group incus-admin >/dev/null 2>&1; then
+                echo 'g incus-admin -'
+            fi
+            echo ''
+            echo 'm ${USER} libvirt'
+            echo 'm ${USER} docker'
+            echo 'm ${USER} incus-admin'
+        } > '${sysusers_conf}'
     "
 }
 
@@ -146,6 +184,10 @@ dx_run_docker_rootless_body() {
     dx_brew_link_if_installed docker slirp4netns fuse-overlayfs iproute2 iptables
 
     local docker_ver="29.5.2" setup_tool
+    # Optional pins — update when bumping docker_ver (docker.com does not publish .sha256 files).
+    local docker_tgz_sha="${DX_DOCKER_STATIC_SHA256:-}"
+    local docker_rootless_sha="${DX_DOCKER_ROOTLESS_STATIC_SHA256:-}"
+    local docker_base="https://download.docker.com/linux/static/stable/x86_64"
     setup_tool="$(brew --prefix)/bin/dockerd-rootless-setuptool.sh"
     local -a setup_args=(install --skip-iptables)
 
@@ -154,13 +196,15 @@ dx_run_docker_rootless_body() {
         setup_args+=(--force)
     fi
 
-    local temp_dir
+    local temp_dir docker_tgz rootless_tgz
     temp_dir=$(mktemp -d)
-    echo "Downloading static Docker binaries v${docker_ver}..."
-    curl -L "https://download.docker.com/linux/static/stable/x86_64/docker-${docker_ver}.tgz" \
-        | tar xz -C "$temp_dir" --strip-components=1
-    curl -L "https://download.docker.com/linux/static/stable/x86_64/docker-rootless-extras-${docker_ver}.tgz" \
-        | tar xz -C "$temp_dir" --strip-components=1
+    docker_tgz="${temp_dir}/docker-${docker_ver}.tgz"
+    rootless_tgz="${temp_dir}/docker-rootless-extras-${docker_ver}.tgz"
+    dx_msg_muted "  → Downloading static Docker binaries v${docker_ver}..."
+    dx_fetch_verified_tgz "${docker_base}/docker-${docker_ver}.tgz" "$docker_tgz" "$docker_tgz_sha"
+    dx_fetch_verified_tgz "${docker_base}/docker-rootless-extras-${docker_ver}.tgz" "$rootless_tgz" "$docker_rootless_sha"
+    tar xzf "$docker_tgz" -C "$temp_dir" --strip-components=1
+    tar xzf "$rootless_tgz" -C "$temp_dir" --strip-components=1
 
     local file filename dest
     for file in "$temp_dir"/*; do
@@ -254,9 +298,6 @@ dx_run_virt_body() {
             firewall-cmd --permanent --new-zone=libvirt
         fi
         firewall-cmd --permanent --zone=libvirt --set-target=ACCEPT
-        for service in cockpit dhcpv6-client ssh samba-client mdns; do
-            firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=\"\$service\" >/dev/null 2>&1 || true
-        done
         firewall-cmd --reload || true
         mkdir -p /etc/containers/systemd/ /var/lib/libvirt-dx/images/
         cp '${quadlet}' /etc/containers/systemd/libvirt-dx.container

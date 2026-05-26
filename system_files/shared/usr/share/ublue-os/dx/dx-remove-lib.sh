@@ -17,22 +17,41 @@ source "${DX_SHARE}/dx-ui-lib.sh"
 
 # --- Homebrew uninstall (formula or cask) ---
 
-dx_remove_safe_brew_uninstall() {
-    local tool=$1
-    if /home/linuxbrew/.linuxbrew/bin/brew list --formula "$tool" &>/dev/null || \
-       /home/linuxbrew/.linuxbrew/bin/brew list --cask "$tool" &>/dev/null; then
-        echo "  - Uninstalling $tool..."
-        /home/linuxbrew/.linuxbrew/bin/brew uninstall --ignore-dependencies "$tool" >/dev/null 2>&1 || true
+dx_brew_bin() {
+    if command -v brew &>/dev/null; then
+        command -v brew
+    elif [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+        echo /home/linuxbrew/.linuxbrew/bin/brew
+    else
+        return 1
     fi
 }
 
+dx_remove_safe_brew_uninstall() {
+    local tool=$1 brew_bin
+    brew_bin=$(dx_brew_bin) || return 0
+    if "$brew_bin" list --formula "$tool" &>/dev/null || \
+       "$brew_bin" list --cask "$tool" &>/dev/null; then
+        echo "  - Uninstalling $tool..."
+        "$brew_bin" uninstall --ignore-dependencies "$tool" >/dev/null 2>&1 || true
+    fi
+}
+
+# Mirrors dx_run_tools_body + dx-next.Brewfile (flatpaks/npm installed outside bundle).
 dx_remove_tools_body() {
     local tool
-    for tool in kind lima devcontainer podman-tui ublue-os/experimental-tap/ydotool \
+    for tool in kind lima podman-tui ublue-os/experimental-tap/ydotool \
         android-platform-tools visual-studio-code-linux git-svn git-subrepo bpftop numactl \
-        p7zip podman-compose squashfs; do
+        p7zip podman-compose podman; do
         dx_remove_safe_brew_uninstall "$tool"
     done
+    if command -v npm &>/dev/null; then
+        echo "  - Removing @devcontainers/cli (npm global)..."
+        npm uninstall -g @devcontainers/cli >/dev/null 2>&1 || true
+    fi
+    echo "  - Removing DX-Tools flatpaks (user)..."
+    flatpak uninstall --user -y --noninteractive org.flatpak.Builder \
+        io.podman_desktop.PodmanDesktop >/dev/null 2>&1 || true
 }
 
 # --- Per-component teardown (order matters for --all: tools → docker → virt → incus → cockpit → groups) ---
@@ -57,13 +76,10 @@ dx_remove_docker_body() {
     rm -f ~/.config/systemd/user/docker.service || true
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 
-    flatpak uninstall --user -y --noninteractive io.podman_desktop.PodmanDesktop >/dev/null 2>&1 || true
-
     dx_sudo_run "
         systemctl stop dockerd-dx.service 2>/dev/null || true
         systemctl disable dockerd-dx.service 2>/dev/null || true
         systemctl reset-failed dockerd-dx.service 2>/dev/null || true
-        flatpak uninstall --system -y --noninteractive io.podman_desktop.PodmanDesktop >/dev/null 2>&1 || true
         rm -f /etc/systemd/system/dockerd-dx.service
         systemctl daemon-reload
     "
@@ -71,14 +87,14 @@ dx_remove_docker_body() {
 
 dx_remove_virt_body() {
     flatpak uninstall --user -y --noninteractive org.virt_manager.virt-manager \
-        org.virt_manager.virt_manager.Extension.Qemu org.flatpak.Builder >/dev/null 2>&1 || true
+        org.virt_manager.virt_manager.Extension.Qemu >/dev/null 2>&1 || true
 
     dx_sudo_run "
         systemctl stop libvirt-dx.service 2>/dev/null || true
         systemctl disable libvirt-dx.service 2>/dev/null || true
         systemctl reset-failed libvirt-dx.service 2>/dev/null || true
         flatpak uninstall --system -y --noninteractive org.virt_manager.virt-manager \
-            org.virt_manager.virt_manager.Extension.Qemu org.flatpak.Builder >/dev/null 2>&1 || true
+            org.virt_manager.virt_manager.Extension.Qemu >/dev/null 2>&1 || true
         rm -f /etc/containers/systemd/libvirt-dx.container
         rm -f /etc/udev/rules.d/50-spice-usb.rules
         if firewall-cmd --permanent --get-zones | grep -qw libvirt; then
@@ -176,8 +192,8 @@ dx_remove_all_full() {
     dx_remove_main --all
     if [ -f /var/lib/extensions/dx-next.raw ]; then
         dx_sudo_run "
-            systemd-sysext unmerge >/dev/null 2>&1 || true
             rm -f /var/lib/extensions/dx-next.raw
+            systemd-sysext refresh
         "
     fi
 }

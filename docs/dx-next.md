@@ -404,6 +404,16 @@ Removal of `dx-next.raw` is included in `dx_remove_all_full` when the file exist
 
 ---
 
+## Security and safety notes
+
+- **libvirt GID:** DX-Next never runs `groupmod` on an existing host `libvirt` group; it only creates the group when missing, then adds your user via `/etc/sysusers.d/dx-groups.conf`.
+- **Firewall:** Virt setup configures the dedicated `libvirt` zone only; it does not remove services from `FedoraWorkstation`.
+- **Docker static binaries:** Downloads go to a temp file (`curl -fSL`), with `tar -tzf` integrity checks; optional `DX_DOCKER_STATIC_SHA256` / `DX_DOCKER_ROOTLESS_STATIC_SHA256` env vars pin SHA256 when bumping versions.
+- **Removal:** `dx_remove_tools_body` uninstalls the same Brewfile, flatpak, and npm packages as install; sysext removal uses `systemd-sysext refresh` after deleting `dx-next.raw` (not `unmerge`).
+- **build-dx-next:** Refuses to stage when `SOURCE_DIR` resolves to `/`, `/usr`, etc. (installed image path).
+
+---
+
 ## Troubleshooting
 
 ### `error: Recipe dx-next failed with exit code 127`

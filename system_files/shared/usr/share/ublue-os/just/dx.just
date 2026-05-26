@@ -96,8 +96,16 @@ build-dx-next:
     #!/usr/bin/env bash
     set -euo pipefail
     SOURCE_DIR=$(realpath "$(dirname "{{ justfile() }}")/../../../../")
+    case "$SOURCE_DIR" in
+        /|/usr|/usr/*|/etc|/etc/*|/var|/var/*)
+            echo "Error: refusing to stage from system path: $SOURCE_DIR"
+            echo "Run build-dx-next from a git checkout (system_files/shared), not the installed image path."
+            exit 1
+            ;;
+    esac
     if [ ! -d "$SOURCE_DIR/usr" ]; then
         echo "Error: Could not find source directory (expected $SOURCE_DIR/usr to exist)."
+        echo "Resolved SOURCE_DIR=$SOURCE_DIR"
         exit 1
     fi
     STAGING_DIR=$(mktemp -d)
