@@ -304,7 +304,11 @@ One command for install validation or before a PR demo:
 ./scripts/dx-next-health.sh
 # skip slow docker image pulls:
 DX_HEALTH_SKIP_DOCKER_PULL=1 ./scripts/dx-next-health.sh
+# skip incus ephemeral launch + ping (~30s):
+DX_HEALTH_SKIP_INCUS_SMOKE=1 ./scripts/dx-next-health.sh
 ```
+
+The Incus smoke test launches **`dx-health-smoke`** (ephemeral Debian), waits for IPv4 on `eth0`, pings `1.1.1.1`, then stops the instance. Failures print **`WARN`** only and do not change the overall **HEALTHY** result (useful when `incusbr0` is not in firewalld **trusted** yet).
 
 Avoid `set -e` plus `test "$fail" -eq 0` in ad-hoc scripts — a non-zero exit makes some terminals quit immediately.
 

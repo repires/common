@@ -17,7 +17,7 @@ User and architecture docs: [docs/dx-next.md](../docs/dx-next.md) · [dx/README.
 |------|------|
 | `dx-next-dev.sh` | **Main** dev entry (`run` / `deploy` / `debug` / `link`) |
 | `dx-next-verify.sh` | Post-install checks (services, CLIs, docker/podman/incus) |
-| `dx-next-health.sh` | Full health report (runs verify + status summary + optional docker smoke) |
+| `dx-next-health.sh` | Full health report (verify + summary + optional docker/incus smoke; `DX_HEALTH_SKIP_*`) |
 | `lib/dx-paths.sh` | Shared `DX_SHARE`, `DX_LIB`, validation (sourced only) |
 | `run-dx-next-dev.sh` | Thin wrapper → `dx-next-dev.sh run` |
 | `deploy-dx-next-fix.sh` | Thin wrapper → `dx-next-dev.sh deploy` |

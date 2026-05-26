@@ -2,6 +2,7 @@
 # DX-Next full health check — automated checks + readable status summary.
 # Usage: ./scripts/dx-next-health.sh
 #        DX_HEALTH_SKIP_DOCKER_PULL=1 ./scripts/dx-next-health.sh   # skip hello-world pulls
+#        DX_HEALTH_SKIP_INCUS_SMOKE=1 ./scripts/dx-next-health.sh  # skip ephemeral launch + ping
 
 set -u
 
@@ -24,6 +25,44 @@ else
 fi
 
 section() { echo ""; echo "── $1 ──"; }
+
+# Ephemeral container + outbound ping. Warn-only — does not change VERIFY_EXIT.
+dx_health_incus_smoke() {
+    local name="dx-health-smoke"
+    local i=0
+    local addr=""
+
+    incus delete "$name" --force 2>/dev/null || true
+
+    if ! incus launch images:debian/12 "$name" --ephemeral >/dev/null 2>&1; then
+        echo "  WARN  could not launch ephemeral smoke container (incus launch failed)"
+        return 0
+    fi
+
+    while [ "$i" -lt 30 ]; do
+        addr=$(incus exec "$name" -- ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1)
+        if [ -n "$addr" ]; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 1
+    done
+
+    if [ -z "$addr" ]; then
+        echo "  WARN  incus smoke: no IPv4 on eth0 after 30s (firewalld trusted on incusbr0?)"
+        incus stop "$name" --force 2>/dev/null || true
+        return 0
+    fi
+
+    if incus exec "$name" -- ping -c1 -W5 1.1.1.1 >/dev/null 2>&1; then
+        echo "  OK  incus smoke: ${addr} → ping 1.1.1.1"
+    else
+        echo "  WARN  incus smoke: ${addr} but ping 1.1.1.1 failed (NAT/firewall?)"
+    fi
+
+    incus stop "$name" --force 2>/dev/null || true
+    return 0
+}
 
 section "Services"
 printf '  libvirt-dx=%s  dockerd-dx=%s  incus-dx=%s  cockpit-dx=%s  user-docker=%s\n' \
@@ -99,6 +138,16 @@ if [ "${DX_HEALTH_SKIP_DOCKER_PULL:-0}" != "1" ]; then
 else
     echo ""
     echo "  (skipped docker hello-world — set DX_HEALTH_SKIP_DOCKER_PULL=0 to enable)"
+fi
+
+if [ "${DX_HEALTH_SKIP_INCUS_SMOKE:-0}" != "1" ]; then
+    if command -v incus >/dev/null && systemctl is-active --quiet incus-dx 2>/dev/null; then
+        section "Incus smoke (ephemeral ping, warn-only)"
+        dx_health_incus_smoke
+    fi
+else
+    echo ""
+    echo "  (skipped incus smoke — set DX_HEALTH_SKIP_INCUS_SMOKE=0 to enable)"
 fi
 
 echo ""
