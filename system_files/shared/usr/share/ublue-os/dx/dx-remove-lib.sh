@@ -169,6 +169,11 @@ dx_remove_incus_body() {
         systemctl disable incus-dx.service 2>/dev/null || true
         systemctl reset-failed incus-dx.service 2>/dev/null || true
         rm -f /etc/containers/systemd/incus-dx.container
+        if [ -f /var/lib/dx-next/firewall-incusbr0-trusted ]; then
+            firewall-cmd --permanent --zone=trusted --remove-interface=incusbr0 >/dev/null 2>&1 || true
+            rm -f /var/lib/dx-next/firewall-incusbr0-trusted
+            firewall-cmd --reload >/dev/null 2>&1 || true
+        fi
         systemctl daemon-reload
     "
     podman rm -f incus 2>/dev/null || true

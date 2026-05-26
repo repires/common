@@ -612,6 +612,24 @@ dx_wait_incus_socket() {
     done
 }
 
+# Fedora firewalld often blocks DHCP on incusbr0 until the bridge is in trusted.
+dx_ensure_incus_firewalld() {
+    command -v firewall-cmd >/dev/null 2>&1 || return 0
+    if ! ip link show incusbr0 >/dev/null 2>&1; then
+        return 0
+    fi
+    dx_ensure_sudo_before_privileged_step
+    dx_sudo_run "
+        mkdir -p /var/lib/dx-next
+        if firewall-cmd --permanent --zone=trusted --query-interface=incusbr0 >/dev/null 2>&1; then
+            exit 0
+        fi
+        firewall-cmd --permanent --zone=trusted --add-interface=incusbr0
+        touch /var/lib/dx-next/firewall-incusbr0-trusted
+        firewall-cmd --reload || true
+    "
+}
+
 dx_ensure_incus_initialized() {
     if ! command -v incus >/dev/null 2>&1; then
         return 1
@@ -636,6 +654,7 @@ dx_ensure_incus_initialized() {
 
 dx_run_incus_post_setup() {
     dx_ensure_incus_initialized || true
+    dx_ensure_incus_firewalld || true
 }
 
 dx_run_incus_body() {

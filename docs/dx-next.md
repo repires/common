@@ -377,6 +377,19 @@ DX-Next runs **`incus admin init --minimal`** after starting `incus-dx` if no st
 incus admin init --minimal
 ```
 
+**Container has IPv6 but no IPv4 / ping “Network is unreachable”:** On Fedora with **firewalld**, DHCP on `incusbr0` is often blocked until the bridge is in the **trusted** zone. DX-Next install adds `incusbr0` there automatically after init. If you installed Incus before that fix or skipped the Incus menu step:
+
+```bash
+sudo firewall-cmd --permanent --zone=trusted --add-interface=incusbr0
+sudo firewall-cmd --reload
+incus delete <instance> --force
+incus launch images:debian/12 test
+incus exec test -- ip -4 -br a    # expect 10.x.x.x on eth0
+incus exec test -- ping -c2 1.1.1.1
+```
+
+Check DHCP leases: `sudo cat /var/lib/incus/networks/incusbr0/dnsmasq.leases` should show a line with an IPv4 address, not only a `duid` line.
+
 ### Cockpit
 
 ```bash

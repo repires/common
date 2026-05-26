@@ -64,6 +64,7 @@ check "podman ps" podman ps
 check "incus list" incus list
 check "incus storage pool" incus storage info default
 check "incus default root disk" bash -c 'incus profile show default | grep -q "^  root:"'
+check "incusbr0 firewalld" bash -c 'if ! ip link show incusbr0 >/dev/null 2>&1; then exit 0; fi; command -v firewall-cmd >/dev/null 2>&1 || exit 0; firewall-cmd --permanent --zone=trusted --query-interface=incusbr0'
 
 echo ""
 printf "Result: %s passed, %s failed\n" "$ok" "$fail"
