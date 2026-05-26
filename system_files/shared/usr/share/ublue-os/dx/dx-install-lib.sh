@@ -198,6 +198,7 @@ dx_run_docker_rootless_body() {
 
     local temp_dir docker_tgz rootless_tgz
     temp_dir=$(mktemp -d)
+    trap 'rm -rf "$temp_dir"' RETURN
     docker_tgz="${temp_dir}/docker-${docker_ver}.tgz"
     rootless_tgz="${temp_dir}/docker-rootless-extras-${docker_ver}.tgz"
     dx_msg_muted "  → Downloading static Docker binaries v${docker_ver}..."
@@ -217,6 +218,7 @@ dx_run_docker_rootless_body() {
     done
     chmod +x "$(brew --prefix)/bin"/*
     rm -rf "$temp_dir"
+    trap - RETURN
 
     if ! "$setup_tool" "${setup_args[@]}"; then
         if systemctl --user is-active --quiet docker.service 2>/dev/null; then
