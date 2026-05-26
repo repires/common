@@ -420,10 +420,143 @@ dx_run_docker() {
 
 # --- Virt: flatpaks + libvirt-dx quadlet ---
 
+DX_VIRT_ISO_DIR="${DX_VIRT_ISO_DIR:-/var/lib/libvirt-dx/images}"
+DX_VIRT_LIBVIRT_URI="${DX_VIRT_LIBVIRT_URI:-qemu:///system?socket=/run/libvirt-dx/libvirt-sock}"
+
+dx_virt_gsettings() {
+    flatpak run --command=gsettings org.virt_manager.virt-manager "$@"
+}
+
+dx_virt_virsh() {
+    flatpak run --command=virsh org.virt_manager.virt-manager \
+        -c "${DX_VIRT_LIBVIRT_URI}" "$@"
+}
+
+dx_ensure_virt_default_network() {
+    local i=0 define_err
+
+    if ! systemctl is-active --quiet libvirt-dx 2>/dev/null; then
+        dx_msg_warn "  libvirt-dx not active; skipping default NAT network."
+        return 1
+    fi
+
+    # libvirtd may not answer immediately after systemctl start libvirt-dx.
+    while ! dx_virt_virsh uri &>/dev/null; do
+        i=$((i + 1))
+        if [ "$i" -ge 30 ]; then
+            dx_msg_warn "  libvirt-dx socket not ready; skipping default NAT network."
+            return 1
+        fi
+        sleep 1
+    done
+
+    if ! dx_virt_virsh net-info default &>/dev/null; then
+        dx_msg_muted "  → Creating libvirt default NAT network (virbr0)..."
+        define_err=$(
+            dx_virt_virsh net-define /dev/stdin 2>&1 <<'EOF' || true
+<network>
+  <name>default</name>
+  <forward mode='nat'/>
+  <bridge name='virbr0' stp='on' delay='0'/>
+  <ip address='192.168.122.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.122.2' end='192.168.122.254'/>
+    </dhcp>
+  </ip>
+</network>
+EOF
+        )
+        if [ -n "$define_err" ] \
+            && ! grep -q 'already exists' <<<"$define_err" \
+            && ! dx_virt_virsh net-info default &>/dev/null; then
+            dx_msg_warn "  Could not define default network: ${define_err%%$'\n'*}"
+            return 1
+        fi
+    fi
+
+    dx_virt_virsh net-autostart default &>/dev/null || return 1
+
+    if dx_virt_virsh net-list 2>/dev/null \
+        | awk 'NR>2 && $1=="default" && $2=="active" { found=1 } END { exit !found }'; then
+        return 0
+    fi
+
+    if ! dx_virt_virsh net-start default &>/dev/null; then
+        # With Network=host, virbr0 can outlive a libvirt-dx restart; reset and retry once.
+        dx_virt_virsh net-destroy default &>/dev/null || true
+        dx_virt_virsh net-start default &>/dev/null || return 1
+    fi
+}
+
+dx_install_virt_virsh_wrapper() {
+    local wrapper="${HOME}/.local/bin/virsh"
+    mkdir -p "${HOME}/.local/bin"
+    if [ -f "$wrapper" ] && ! grep -q 'dx-next-virsh-wrapper' "$wrapper" 2>/dev/null; then
+        dx_msg_warn "  ~/.local/bin/virsh exists (not from DX-Next); skipping wrapper."
+        return 0
+    fi
+    cat >"$wrapper" <<'EOF'
+#!/usr/bin/env bash
+# dx-next-virsh-wrapper — host virsh → libvirt-dx (flatpak QEMU tools)
+exec flatpak run --command=virsh org.virt_manager.virt-manager \
+  -c 'qemu:///system?socket=/run/libvirt-dx/libvirt-sock' "$@"
+EOF
+    chmod +x "$wrapper"
+}
+
+dx_install_virt_manager_wrapper() {
+    local wrapper="${HOME}/.local/bin/virt-manager"
+    mkdir -p "${HOME}/.local/bin"
+    if [ -f "$wrapper" ] && ! grep -q 'dx-next-virt-manager-wrapper' "$wrapper" 2>/dev/null; then
+        dx_msg_warn "  ~/.local/bin/virt-manager exists (not from DX-Next); skipping wrapper."
+        return 0
+    fi
+    cat >"$wrapper" <<'EOF'
+#!/usr/bin/env bash
+# dx-next-virt-manager-wrapper — flatpak virt-manager on PATH
+exec flatpak run org.virt_manager.virt-manager "$@"
+EOF
+    chmod +x "$wrapper"
+}
+
+dx_configure_virt_manager_autoconnect() {
+    if ! flatpak info --user org.virt_manager.virt-manager &>/dev/null 2>&1; then
+        return 0
+    fi
+    local uri="$DX_VIRT_LIBVIRT_URI"
+    dx_msg_muted "  → virt-manager autoconnect: libvirt-dx"
+    if ! dx_virt_gsettings set org.virt-manager.virt-manager.connections autoconnect "['${uri}']"; then
+        dx_msg_warn "  Could not set virt-manager autoconnect (set it in Connection Details)."
+        return 1
+    fi
+    local uris
+    uris=$(dx_virt_gsettings get org.virt-manager.virt-manager.connections uris 2>/dev/null || echo "[]")
+    if [[ "$uris" != *"${uri}"* ]]; then
+        dx_virt_gsettings set org.virt-manager.virt-manager.connections uris \
+            "['${uri}', 'qemu:///session']" 2>/dev/null || true
+    fi
+}
+
+dx_print_virt_usage_hints() {
+    dx_msg_ok "Virt (libvirt-dx) ready"
+    dx_msg_muted "  Put ISOs and disk images here (host path): ${DX_VIRT_ISO_DIR}/"
+    dx_msg_muted "  Terminal: virsh list | virt-manager  (~/.local/bin → libvirt-dx)"
+    dx_msg_muted "  virt-manager URI: autoconnect ${DX_VIRT_LIBVIRT_URI}"
+}
+
+dx_run_virt_post_setup() {
+    dx_install_virt_virsh_wrapper
+    dx_install_virt_manager_wrapper
+    dx_ensure_virt_default_network || dx_msg_warn "  Default NAT network could not be started (virt-manager may warn)."
+    dx_configure_virt_manager_autoconnect || true
+    dx_print_virt_usage_hints
+}
+
 dx_run_virt_body() {
     if systemctl is-active --quiet libvirt-dx 2>/dev/null \
         && [ -f /etc/containers/systemd/libvirt-dx.container ]; then
         dx_msg_muted "Libvirt/QEMU (libvirt-dx) is already configured."
+        dx_run_virt_post_setup
         return 0
     fi
     flatpak install --user -y flathub org.virt_manager.virt-manager
@@ -455,8 +588,9 @@ dx_run_virt_body() {
     "
 
     flatpak override --user --filesystem=/run/libvirt-dx org.virt_manager.virt-manager
-    flatpak run --user org.virt_manager.virt-manager -c "qemu:///system?socket=/run/libvirt-dx/libvirt-sock" &>/dev/null &
+    flatpak run --user org.virt_manager.virt-manager -c "${DX_VIRT_LIBVIRT_URI}" &>/dev/null &
     flatpak run --user org.virt_manager.virt-manager -c "qemu:///session" &>/dev/null &
+    dx_run_virt_post_setup
 }
 
 dx_run_virt() {
@@ -465,10 +599,50 @@ dx_run_virt() {
 
 # --- Incus: brew CLI + incus-dx quadlet (not in dx-next.Brewfile) ---
 
+DX_INCUS_SOCKET="${DX_INCUS_SOCKET:-/var/lib/incus/unix.socket}"
+
+dx_wait_incus_socket() {
+    local i=0
+    while [ ! -S "${DX_INCUS_SOCKET}" ]; do
+        i=$((i + 1))
+        if [ "$i" -ge 60 ]; then
+            return 1
+        fi
+        sleep 0.5
+    done
+}
+
+dx_ensure_incus_initialized() {
+    if ! command -v incus >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! dx_wait_incus_socket; then
+        dx_msg_warn "  incus-dx socket not ready (${DX_INCUS_SOCKET})."
+        return 1
+    fi
+    if incus storage list 2>/dev/null | awk 'NR > 1 && $1 != "" { found=1 } END { exit !found }'; then
+        if incus profile show default 2>/dev/null | grep -q '^  root:'; then
+            return 0
+        fi
+    fi
+    dx_msg_muted "  → incus admin init --minimal (storage pool + default profile)..."
+    if incus admin init --minimal; then
+        dx_msg_ok "  Incus initialized (pool default, profile root disk + incusbr0)"
+        return 0
+    fi
+    dx_msg_warn "  incus admin init failed; try: incus admin init --minimal"
+    return 1
+}
+
+dx_run_incus_post_setup() {
+    dx_ensure_incus_initialized || true
+}
+
 dx_run_incus_body() {
     if systemctl is-active --quiet incus-dx 2>/dev/null \
         && [ -f /etc/containers/systemd/incus-dx.container ]; then
         dx_msg_muted "Incus (incus-dx) is already configured."
+        dx_run_incus_post_setup
         return 0
     fi
     dx_msg_muted "  → Homebrew incus (CLI client)..."
@@ -482,6 +656,7 @@ dx_run_incus_body() {
         systemctl daemon-reload
         systemctl start incus-dx
     "
+    dx_run_incus_post_setup
 }
 
 dx_run_incus() {

@@ -92,7 +92,51 @@ dx_remove_docker_body() {
     "
 }
 
+dx_remove_virt_virsh_wrapper() {
+    local wrapper="${HOME}/.local/bin/virsh"
+    if [ -f "$wrapper" ] && grep -q 'dx-next-virsh-wrapper' "$wrapper" 2>/dev/null; then
+        rm -f "$wrapper"
+    fi
+}
+
+dx_remove_virt_manager_wrapper() {
+    local wrapper="${HOME}/.local/bin/virt-manager"
+    if [ -f "$wrapper" ] && grep -q 'dx-next-virt-manager-wrapper' "$wrapper" 2>/dev/null; then
+        rm -f "$wrapper"
+    fi
+}
+
+dx_remove_virt_manager_autoconnect() {
+    local uri='qemu:///system?socket=/run/libvirt-dx/libvirt-sock'
+    if ! flatpak info --user org.virt_manager.virt-manager &>/dev/null 2>&1; then
+        return 0
+    fi
+    if ! flatpak run --command=gsettings org.virt_manager.virt-manager \
+        get org.virt-manager.virt-manager.connections autoconnect &>/dev/null; then
+        return 0
+    fi
+    local autoconnect uris
+    autoconnect=$(flatpak run --command=gsettings org.virt_manager.virt-manager \
+        get org.virt-manager.virt-manager.connections autoconnect 2>/dev/null || true)
+    uris=$(flatpak run --command=gsettings org.virt_manager.virt-manager \
+        get org.virt-manager.virt-manager.connections uris 2>/dev/null || true)
+    if [[ "$autoconnect" == "['${uri}']" ]]; then
+        flatpak run --command=gsettings org.virt_manager.virt-manager \
+            set org.virt-manager.virt-manager.connections autoconnect "[]" 2>/dev/null || true
+    elif [[ "$autoconnect" == *"'${uri}'"* ]]; then
+        flatpak run --command=gsettings org.virt_manager.virt-manager \
+            set org.virt-manager.virt-manager.connections autoconnect "['qemu:///session']" 2>/dev/null || true
+    fi
+    if [[ "$uris" == "['${uri}', 'qemu:///session']" ]] || [[ "$uris" == "['${uri}']" ]]; then
+        flatpak run --command=gsettings org.virt_manager.virt-manager \
+            set org.virt-manager.virt-manager.connections uris "['qemu:///session']" 2>/dev/null || true
+    fi
+}
+
 dx_remove_virt_body() {
+    dx_remove_virt_manager_autoconnect
+    dx_remove_virt_manager_wrapper
+    dx_remove_virt_virsh_wrapper
     flatpak uninstall --user -y --noninteractive org.virt_manager.virt-manager \
         org.virt_manager.virt_manager.Extension.Qemu >/dev/null 2>&1 || true
 

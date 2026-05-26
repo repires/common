@@ -26,7 +26,7 @@ This document covers end-user flows, what gets installed where, health checks, t
 | Component | What it does | Main artifacts |
 |-----------|----------------|----------------|
 | **DX groups** | Adds user to `libvirt`, `docker`, `incus-admin` | `/etc/sysusers.d/dx-groups.conf` |
-| **Virt** | Libvirt/QEMU in Podman (`libvirt-dx`) | `/etc/containers/systemd/libvirt-dx.container`, `/run/libvirt-dx/libvirt-sock` |
+| **Virt** | Libvirt/QEMU in Podman (`libvirt-dx`) | `/etc/containers/systemd/libvirt-dx.container`, `/run/libvirt-dx/libvirt-sock`, default NAT network `default`, ISOs at `/var/lib/libvirt-dx/images/`, `~/.local/bin/virsh` and `virt-manager` wrappers |
 | **Docker** | Rootless user daemon + rootfull `dockerd-dx` | `~/.config/systemd/user/docker.service`, `/etc/systemd/system/dockerd-dx.service` |
 | **DX-Tools** | Homebrew bundle, VS Code cask, npm devcontainers CLI, flatpaks | `dx-next.Brewfile`, `~/.linuxbrew`, flatpaks |
 | **Incus** | Incus in Podman (`incus-dx`) + Homebrew `incus` CLI | `/etc/containers/systemd/incus-dx.container`, `/var/lib/incus/unix.socket` |
@@ -288,6 +288,26 @@ printf 'libvirt-dx=%s dockerd-dx=%s incus-dx=%s cockpit-dx=%s user-docker=%s\n' 
 
 All selected components should show **active**.
 
+### Full verify script
+
+From the repo checkout (does **not** close the terminal when a check fails):
+
+```bash
+./scripts/dx-next-verify.sh
+```
+
+### Full health check (verify + status summary)
+
+One command for install validation or before a PR demo:
+
+```bash
+./scripts/dx-next-health.sh
+# skip slow docker image pulls:
+DX_HEALTH_SKIP_DOCKER_PULL=1 ./scripts/dx-next-health.sh
+```
+
+Avoid `set -e` plus `test "$fail" -eq 0` in ad-hoc scripts — a non-zero exit makes some terminals quit immediately.
+
 ### Config on disk
 
 ```bash
@@ -327,7 +347,18 @@ npm list -g @devcontainers/cli 2>/dev/null
 systemctl is-active libvirt-dx
 ls -la /run/libvirt-dx/libvirt-sock
 flatpak list --app | grep virt-manager
+ls -la /var/lib/libvirt-dx/images/
+command -v virsh virt-manager   # ~/.local/bin wrappers after DX virt install
+virsh list --all   # uses libvirt-dx URI (no -c flag needed)
+virt-manager       # flatpak GUI on PATH
+virsh net-list --all   # default NAT network should be active
 ```
+
+**Paths:** Store ISOs and VM disks on the host at `/var/lib/libvirt-dx/images/`. virt-manager may show `/var/lib/libvirt/images/…` inside the guest path mapping — that is the same location.
+
+**Connection URI:** `qemu:///system?socket=/run/libvirt-dx/libvirt-sock` (installed into `~/.local/bin/virsh` for terminal use).
+
+**virt-manager Autoconnect:** Virt install sets flatpak gsettings so virt-manager opens **libvirt-dx** on launch (Connection Details → Autoconnect). This is separate from the libvirt `default` network autostart.
 
 ### Incus
 
@@ -335,6 +366,15 @@ flatpak list --app | grep virt-manager
 incus version
 systemctl is-active incus-dx
 ls -la /var/lib/incus/unix.socket
+incus storage list          # should show pool "default"
+incus profile show default  # should include root disk + eth0 on incusbr0
+incus launch images:debian/12 test
+```
+
+DX-Next runs **`incus admin init --minimal`** after starting `incus-dx` if no storage pool exists (creates pool, `incusbr0`, and default profile devices). If launch fails with **No root device could be found**, run:
+
+```bash
+incus admin init --minimal
 ```
 
 ### Cockpit
@@ -459,6 +499,33 @@ Regenerate/reload:
 sudo systemctl daemon-reload
 sudo systemctl restart libvirt-dx
 ```
+
+### virt-manager: no default network
+
+DX-Next **Virt install** defines and starts a `default` NAT network (`virbr0`) automatically. If the new-VM wizard still warns **“Failed to find a suitable default network”**, repair it manually:
+
+```bash
+virsh net-define /dev/stdin <<'EOF'
+<network>
+  <name>default</name>
+  <forward mode='nat'/>
+  <bridge name='virbr0' stp='on' delay='0'/>
+  <ip address='192.168.122.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.122.2' end='192.168.122.254'/>
+    </dhcp>
+  </ip>
+</network>
+EOF
+virsh net-autostart default
+virsh net-start default
+```
+
+(`virsh` here is the DX wrapper in `~/.local/bin/virsh` when Virt was installed via DX-Next.)
+
+### ISO path vs virt-manager display path
+
+Copy ISOs to **`/var/lib/libvirt-dx/images/`** on the host. virt-manager may label disks as `/var/lib/libvirt/images/…` — that is the in-daemon path inside `libvirt-dx`, not a different folder.
 
 ### Incus CLI vs server version mismatch
 
