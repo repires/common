@@ -1,6 +1,6 @@
-FROM docker.io/library/alpine:latest@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS build
+FROM docker.io/library/alpine:latest@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS build
 
-COPY --from=ghcr.io/ublue-os/bluefin-wallpapers-gnome:latest@sha256:4a9b0b771a7e927308cf1240ad1b512b61f2a91954be799bc6e1b5045fea2942 / /out/bluefin/usr/share
+COPY --from=ghcr.io/ublue-os/bluefin-wallpapers-gnome:latest@sha256:e4d74fa741ce9ff03a6a60440a58c31cef6c0fc145182357d243580ba239f810 / /out/bluefin/usr/share
 
 RUN apk add just curl
 
@@ -14,8 +14,10 @@ RUN install -d /out/shared/usr/share/bash-completion/completions /out/shared/usr
   just --completions zsh | sed -E 's/([\(_" ])just/\1ujust/g' > /out/shared/usr/share/zsh/site-functions/_ujust && \
   just --completions fish | sed -E 's/([\(_" ])just/\1ujust/g' > /out/shared/usr/share/fish/vendor_completions.d/ujust.fish
 
-RUN curl -fsSLo - https://codeberg.org/fabiscafe/game-devices-udev/archive/0.25.tar.gz | tar xzvf - -C /tmp/ && \
-  install -Dpm0644 -t /out/shared/usr/lib/udev/rules.d/ /tmp/game-devices-udev/*.rules && \
+RUN curl -fsSLo - https://codeberg.org/fabiscafe/game-devices-udev/archive/1.0.tar.gz | tar xzvf - -C tmp/ && \
+    for f in tmp/game-devices-udev/src/*.rules; do \
+      install -Dpm0644 "$f" "out/shared/usr/lib/udev/rules.d/71-${f##*/}"; \
+    done && \
   curl -fsSLo /out/shared/usr/lib/udev/rules.d/70-u2f.rules https://raw.githubusercontent.com/Yubico/libfido2/refs/heads/main/udev/70-u2f.rules
 
 FROM scratch AS ctx

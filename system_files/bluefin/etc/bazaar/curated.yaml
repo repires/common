@@ -1,4 +1,4 @@
-# https://github.com/kolunmi/bazaar/blob/main/docs/overview.org
+# https://github.com/bazaar-org/bazaar/blob/main/docs/overview.md
 
 css: |
   .global-section banner {
@@ -262,10 +262,11 @@ rows:
             - org.videolan.VLC
             - com.github.wwmm.easyeffects
             - me.timschneeberger.jdsp4linux
-            - com.github.iwalton3.jellyfin-media-player
+            - org.jellyfin.JellyfinDesktop
             - tv.plex.PlexDesktop
             - com.plexamp.Plexamp
             - com.rafaelmardojai.Blanket
+            - org.nickvision.tubeconverter
 
   - sections:
       - expand-horizontally: true
@@ -308,7 +309,6 @@ rows:
             - org.audacityteam.Audacity
             - org.ardour.Ardour
             - org.gnome.Fractal
-            - org.gnome.gitlab.YaLTeR.VideoTrimmer
 
   - sections:
       - expand-horizontally: true
@@ -398,6 +398,7 @@ rows:
             - io.github.plrigaux.sysd-manager
             - org.mozilla.vpn
             - org.cryptomator.Cryptomator
+            - io.github.zarestia_dev.rclone-manager
 
   - sections:
       - expand-horizontally: true
@@ -445,6 +446,7 @@ rows:
             - io.github.mfat.sshpilot
             - io.github.shonebinu.Brief
             - io.github.getnf.embellish
+            - de.wwwtech.gitte
 
   - sections:
       - expand-horizontally: true
